@@ -1,5 +1,4 @@
 # uesave
-===
 
 <img src="https://github.com/pboechat/uesave/blob/main/uesave/static/logo.png" alt="uesave" height="256px"></img>
 
