@@ -1,10 +1,10 @@
 import gzip
 import struct
 import zlib
+from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
-from pprint import pprint
 from typing import *
 
 # optional compressors
@@ -19,13 +19,6 @@ except Exception:  # pragma: no cover
     zstd = None
 
 MAGIC = b'GVAS'  # UE SaveGame header magic
-
-
-@dataclass
-class SaveFile:
-    version: int
-    header: dict
-    properties: dict
 
 
 def read_u32_le(data: bytes, offset: int) -> Tuple[int, int]:
@@ -79,6 +72,516 @@ def read_guid(data: bytes, offset: int) -> Tuple[str, int]:
     return guid, offset
 
 
+class Property(ABC):
+    def __init__(self, name: str):
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    @abstractmethod
+    def size(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def value(self) -> Any:
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['Property', int]:
+        pass
+
+
+class ArrayProperty(Property):
+    def __init__(self, name: str, inner_type: str, values: Any):
+        super().__init__(name)
+        self._inner_type = inner_type
+        self._values = list(values)
+
+    @property
+    def size(self) -> int:
+        return sum(value.size for value in self._values)
+
+    @property
+    def value(self) -> Dict[str, Any]:
+        return {"__array_type": self._inner_type, "__values": self._values}
+
+    @property
+    def inner_type(self) -> str:
+        return self._inner_type
+
+    def __getitem__(self, index: int) -> Property:
+        return self._values[index]
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['ArrayProperty', int]:
+        inner_type, offset = read_string(data, offset)
+        offset += 1
+        _, offset = read_u32_le(data, offset)
+        if inner_type == "ByteProperty":
+            values = data[offset: offset + prop_size]
+            offset += prop_size - 4
+        elif inner_type == "StructProperty":
+            values = []
+            while offset < prop_size:
+                val_prop_name, offset = read_string(data, offset)
+
+                if val_prop_name == "None":
+                    break
+
+                val_prop_type, offset = read_string(data, offset)
+
+                val_prop_size, offset = read_u32_le(data, offset)
+                _, offset = read_u32_le(data, offset)
+
+                value, offset = PropertyFactory.create_property(
+                    name=val_prop_name,
+                    prop_type=val_prop_type,
+                    prop_size=val_prop_size,
+                    data=data,
+                    offset=offset
+                )
+
+                values.append(value)
+        else:
+            raise NotImplementedError(
+                f"ArrayProperty of type {inner_type} not implemented")
+
+        return cls(name=name, inner_type=inner_type, values=values), offset
+
+    def __str__(self):
+        return f"ArrayProperty(name={self._name}, inner_type={self._inner_type}, length={len(self._values)})"
+
+
+class BoolProperty(Property):
+    def __init__(self, name: str, value: bool):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 1
+
+    @property
+    def value(self) -> bool:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['BoolProperty', int]:
+        assert (prop_size == 0)
+        value = bool(data[offset])
+        offset += 1
+        offset += 1  # ?
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"BoolProperty(name={self._name}, value={self._value})"
+
+
+class ByteProperty(Property):
+    def __init__(self, name: str, guid: str, value: int):
+        super().__init__(name)
+        self._guid = guid
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 1
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['ByteProperty', int]:
+        assert (prop_size == 1)
+        guid, offset = read_string(data, offset)
+        offset += 1
+        value = data[offset]
+        offset += 1
+        return cls(name=name, guid=guid, value=value), offset
+
+    def __str__(self):
+        return f"ByteProperty(name={self._name}, guid={self._guid}, value={self._value})"
+
+
+class DoubleProperty(Property):
+    def __init__(self, name: str, value: float):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 8
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['DoubleProperty', int]:
+        assert (prop_size == 8)
+        value = struct.unpack_from('<d', data, offset)[0]
+        offset += 8
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"DoubleProperty(name={self._name}, value={self._value})"
+
+
+class FloatProperty(Property):
+    def __init__(self, name: str, value: float):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 4
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['FloatProperty', int]:
+        assert (prop_size == 4)
+        value = struct.unpack_from('<f', data, offset)[0]
+        offset += 4
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"FloatProperty(name={self._name}, value={self._value})"
+
+
+class Int64Property(Property):
+    def __init__(self, name: str, value: int):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 8
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['Int64Property', int]:
+        assert (prop_size == 8)
+        value = struct.unpack_from('<q', data, offset)[0]
+        offset += 8
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"Int64Property(name={self._name}, value={self._value})"
+
+
+class IntProperty(Property):
+    def __init__(self, name: str, value: int):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 4
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['IntProperty', int]:
+        assert (prop_size == 4)
+        value = read_i32_le(data, offset)[0]
+        offset += 4
+        offset += 1
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"IntProperty(name={self._name}, value={self._value})"
+
+
+class MapProperty(Property):
+    def __init__(self, name: str, key_type: str, value_type: str, raw_bytes: bytes):
+        super().__init__(name)
+        self._key_type = key_type
+        self._value_type = value_type
+        self._raw_bytes = raw_bytes
+
+    @property
+    def size(self) -> int:
+        return len(self._raw_bytes)
+
+    @property
+    def value(self) -> Dict[str, Any]:
+        return {"__key_type": self._key_type, "__value_type": self._value_type, "__raw": self._raw_bytes}
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['MapProperty', int]:
+        key_type, offset = read_string(data, offset)
+        value_type, offset = read_string(data, offset)
+        offset += 1
+        map_size, offset = read_u32_le(data, offset)
+        prop_size -= 5
+        raw_bytes = data[offset: offset + prop_size]
+        offset += prop_size
+        offset += 1
+        return cls(name=name, key_type=key_type, value_type=value_type, raw_bytes=raw_bytes), offset
+
+    def __str__(self):
+        return f"MapProperty(name={self._name}, key_type={self._key_type}, value_type={self._value_type}, raw_size={len(self._raw_bytes)})"
+
+
+class NameProperty(Property):
+    def __init__(self, name: str, value: str):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return len(self._value) + 4 + 1
+
+    @property
+    def value(self) -> str:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['NameProperty', int]:
+        offset += 1  # null byte
+        value, offset = read_string(data, offset)
+        assert ((len(value) + 4 + 1) == prop_size)
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"NameProperty(name={self._name}, value={self._value})"
+
+
+class ObjectProperty(Property):
+    def __init__(self, name: str, value: str):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return len(self._value) + 4 + 1
+
+    @property
+    def value(self) -> str:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['ObjectProperty', int]:
+        offset += 1  # null byte
+        value, offset = read_string(data, offset)
+        assert ((len(value) + 4 + 1) == prop_size)
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"ObjectProperty(name={self._name}, value={self._value})"
+
+
+class StrProperty(Property):
+    def __init__(self, name: str, value: str):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return len(self._value) + 4 + (1 if self._value else 0)
+
+    @property
+    def value(self) -> str:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['StrProperty', int]:
+        offset += 1  # null byte
+        value, offset = read_string(data, offset)
+        assert (prop_size == len(value) + 4 + (1 if value else 0))
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"StrProperty(name={self._name}, value={self._value})"
+
+
+class StructProperty(Property):
+    def __init__(self, name: str, type: str, guid: Optional[str], fields: List[Property]):
+        super().__init__(name)
+        self._type = type
+        self._guid = guid
+        self._fields = fields
+
+    @property
+    def size(self) -> int:
+        return sum(field.size for field in self._fields)
+
+    @property
+    def value(self) -> Dict[str, Any]:
+        return {
+            "__type": self._type,
+            "__guid": self._guid,
+            "__fields": self._fields,
+        }
+
+    @property
+    def type(self) -> str:
+        return self._type
+
+    @property
+    def guid(self) -> Optional[str]:
+        return self._guid
+
+    @property
+    def fields(self) -> List[Property]:
+        return self._fields
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['StructProperty', int]:
+        type, offset = read_string(data, offset)
+
+        guid = data[offset: offset + 16].hex()
+
+        offset += 16
+        offset += 1
+
+        if type == "Quat":
+            # special case: Quat is 4 floats
+            assert (prop_size == 16)
+            x = struct.unpack_from('<f', data, offset)[0]
+            y = struct.unpack_from('<f', data, offset + 4)[0]
+            z = struct.unpack_from('<f', data, offset + 8)[0]
+            w = struct.unpack_from('<f', data, offset + 12)[0]
+            offset += 16
+            return cls(name=name, type=type, guid=guid, fields=[
+                FloatProperty(name="X", value=x),
+                FloatProperty(name="Y", value=y),
+                FloatProperty(name="Z", value=z),
+                FloatProperty(name="W", value=w),
+            ]), offset
+        elif type == "Vector":
+            # special case: Vector is 3 floats
+            assert (prop_size == 12)
+            x = struct.unpack_from('<f', data, offset)[0]
+            y = struct.unpack_from('<f', data, offset + 4)[0]
+            z = struct.unpack_from('<f', data, offset + 8)[0]
+            offset += 12
+            return cls(name=name, type=type, guid=guid, fields=[
+                FloatProperty(name="X", value=x),
+                FloatProperty(name="Y", value=y),
+                FloatProperty(name="Z", value=z),
+            ]), offset
+
+        fields = []
+        while offset < prop_size:
+            field_prop_name, offset = read_string(data, offset)
+
+            if field_prop_name == "None":
+                break
+
+            field_prop_type, offset = read_string(data, offset)
+
+            field_prop_size, offset = read_u32_le(data, offset)
+            _, offset = read_u32_le(data, offset)
+
+            field, offset = PropertyFactory.create_property(
+                name=field_prop_name,
+                prop_type=field_prop_type,
+                prop_size=field_prop_size,
+                data=data,
+                offset=offset
+            )
+
+            fields.append(field)
+
+        return cls(name=name, type=type, guid=guid, fields=fields), offset
+
+    def __str__(self):
+        return f"StructProperty(name={self._name}, type={self._type}, guid={self._guid}, fields={len(self._fields)})"
+
+
+class TextProperty(Property):
+    def __init__(self, name: str, value: bytes):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return len(self._value)
+
+    @property
+    def value(self) -> bytes:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['TextProperty', int]:
+        value = data[offset: offset + prop_size]
+        offset += prop_size
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"TextProperty(name={self._name}, value=<bytes len={len(self._value)}>)"
+
+
+class UInt64Property(Property):
+    def __init__(self, name: str, value: int):
+        super().__init__(name)
+        self._value = value
+
+    @property
+    def size(self) -> int:
+        return 8
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    @classmethod
+    def from_bytes(cls, name: str, prop_size: int, data: bytes, offset: int) -> Tuple['UInt64Property', int]:
+        assert (prop_size == 8)
+        value = struct.unpack_from('<Q', data, offset)[0]
+        offset += 8
+        return cls(name=name, value=value), offset
+
+    def __str__(self):
+        return f"UInt64Property(name={self._name}, value={self._value})"
+
+
+class PropertyFactory:
+    _TYPE_MAP: Dict[str, Type[Property]] = {}
+
+    @classmethod
+    def _build_type_map(cls):
+        for subclass in Property.__subclasses__():
+            cls._TYPE_MAP[subclass.__name__] = subclass
+
+    @classmethod
+    def create_property(cls, name: str, prop_type: str, prop_size: int, data: bytes, offset: int) -> Tuple[Property, int]:
+        if not cls._TYPE_MAP:
+            cls._build_type_map()
+        prop_cls = cls._TYPE_MAP.get(prop_type)
+        if prop_cls is None:
+            raise ValueError(f"Unknown property type: {prop_type}")
+        return prop_cls.from_bytes(name, prop_size, data, offset)
+
+
+@dataclass
+class SaveFile:
+    version: int
+    header: dict
+    properties: List[Property]
+
+
 def parse_gvas_header(data: bytes, offset: int = 0) -> Tuple[dict, int]:
     if data[offset: offset + 4] != MAGIC:
         raise ValueError("Not a GVAS header at given offset")
@@ -103,7 +606,7 @@ def parse_gvas_header(data: bytes, offset: int = 0) -> Tuple[dict, int]:
         header["file_version_ue4"] = file_version_ue4
         header["file_version_ue5"] = file_version_ue5
     else:
-        # Fallback: only one package file version present
+        # fallback: only one package file version present
         file_version_single, offset = read_i32_le(data, offset)
         header["package_file_version"] = file_version_single
 
@@ -355,22 +858,22 @@ def decompress_payload(raw_bytes: bytes, method: str = "auto") -> bytes:
         if out is not None:
             return out
 
-    # 4) Try zlib
+    # 4) try zlib
     out = _try_zlib(raw_bytes)
     if out is not None:
         return out
 
-    # 5) Try raw deflate
+    # 5) try raw deflate
     out = _try_deflate_raw(raw_bytes)
     if out is not None:
         return out
 
-    # 6) Try gzip even if magic absent
+    # 6) try gzip even if magic absent
     out = _try_gzip(raw_bytes)
     if out is not None:
         return out
 
-    # 7) Try lz4/zstd as last resorts
+    # 7) try lz4/zstd as last resorts
     out = _try_lz4(raw_bytes)
     if out is not None:
         return out
@@ -383,102 +886,28 @@ def decompress_payload(raw_bytes: bytes, method: str = "auto") -> bytes:
     )
 
 
-def parse_properties(data: bytes, offset: int, end_offset: int) -> Tuple[dict, int]:
-    properties = {}
+def parse_properties(data: bytes, offset: int, end_offset: int) -> Tuple[List[Property], int]:
+    properties = []
     while offset < end_offset:
         prop_name, offset = read_string(data, offset)
-        if prop_name == "None":  # sentinel
+
+        if prop_name == "None":
             break
+
         prop_type, offset = read_string(data, offset)
-        # read property size, array index etc.
+
         prop_size, offset = read_u32_le(data, offset)
         _, offset = read_u32_le(data, offset)
-        # PropertyTag extras: BoolProperty stores its value in tag;
-        # property GUID flag + guid may be present.
-        has_guid = None
-        # Bool value byte comes before GUID flag in tag for BoolProperty
-        bool_in_tag = None
-        if prop_type == "BoolProperty":
-            if offset < end_offset:
-                bool_in_tag = bool(data[offset])
-                offset += 1
-        # property GUID presence flag (heuristic: 0 or 1 byte)
-        if offset < end_offset and data[offset] in (0, 1):
-            has_guid = data[offset]
-            offset += 1
-            if has_guid == 1:
-                # consume 16-byte guid
-                offset += 16
 
-        # handle each type's value/body
-        if prop_type == "IntProperty":
-            value, offset = read_i32_le(data, offset)
-        elif prop_type == "FloatProperty":
-            value = struct.unpack_from('<f', data, offset)[0]
-            offset += 4
-        elif prop_type == "StrProperty":
-            value, offset = read_string(data, offset)
-        elif prop_type == "NameProperty":
-            # Name is serialized as FString in SaveGame
-            value, offset = read_string(data, offset)
-        elif prop_type == "TextProperty":
-            # TextProperty can be complex; treat as raw bytes for now
-            value = data[offset: offset + prop_size]
-            offset += prop_size
-        elif prop_type == "ByteProperty":
-            # may have enum name header (FString). if prop_size > 1, likely an enum string follows.
-            # heuristic: read possible enum name header without advancing value if not plausible.
-            enum_name, new_off = read_string(data, offset)
-            if 0 <= len(enum_name) <= 256:
-                offset = new_off
-            # value can be a single byte or an FString (for EnumProperty variants)
-            if prop_size == 1 and offset < end_offset:
-                value = data[offset]
-                offset += 1
-            else:
-                value, offset = read_string(data, offset)
-        elif prop_type == "BoolProperty":
-            value = bool_in_tag if bool_in_tag is not None else False
-            # Bool payload typically omitted; prop_size often 0
-        elif prop_type == "ArrayProperty":
-            # ArrayProperty tag header contains inner type (FString)
-            inner_type, offset = read_string(data, offset)
-            # for Struct inner type, a struct name may follow;
-            # we won't parse inner elements deeply yet.
-            # read raw body to keep alignment; optional: parse known simple inner types
-            value_bytes = data[offset: offset + prop_size]
-            offset += prop_size
-            value = {"__array_type": inner_type, "__raw": value_bytes}
-        elif prop_type == "StructProperty":
-            # StructProperty tag header: struct type (FString) and a struct GUID (16 bytes)
-            struct_type, offset = read_string(data, offset)
-            if offset + 16 <= end_offset:
-                struct_guid = data[offset: offset + 16].hex()
-                offset += 16
-            else:
-                struct_guid = None
-            # for now, keep raw payload bytes
-            value_bytes = data[offset: offset + prop_size]
-            offset += prop_size
-            value = {"__struct_type": struct_type,
-                     "__guid": struct_guid, "__raw": value_bytes}
-        elif prop_type == "Int64Property":
-            value = struct.unpack_from('<q', data, offset)[0]
-            offset += 8
-        elif prop_type == "UInt64Property":
-            value = struct.unpack_from('<Q', data, offset)[0]
-            offset += 8
-        elif prop_type == "DoubleProperty":
-            value = struct.unpack_from('<d', data, offset)[0]
-            offset += 8
-        else:
-            # unknown type: skip raw bytes
-            value = data[offset: offset + prop_size]
-            offset += prop_size
+        prop, offset = PropertyFactory.create_property(
+            name=prop_name,
+            prop_type=prop_type,
+            prop_size=prop_size,
+            data=data,
+            offset=offset
+        )
 
-        offset += 1
-
-        properties[prop_name] = value
+        properties.append(prop)
 
     return properties, offset
 
@@ -527,8 +956,6 @@ def main():
                         help='Compression method to use for payload (default: auto)')
     parser.add_argument('--selftest', action='store_true',
                         help='Run a quick decompressor self-test and exit')
-    parser.add_argument('--dump-header', action='store_true',
-                        help='Parse and print header only, then exit')
     args = parser.parse_args()
 
     if args.selftest:
@@ -554,7 +981,7 @@ def main():
         else:
             results['zstd'] = 'skipped (missing zstandard)'
         print('Self-test results:')
-        pprint(results)
+        print(results)
         return
 
     if not args.savefile:
@@ -565,11 +992,37 @@ def main():
         compression=args.compression
     )
 
-    if getattr(args, 'dump_header', False):
-        pprint(save_file.header)
-        return
+    print("Header:")
+    print("Magic:", save_file.header.get("magic", ""))
+    print("Version:", save_file.header.get("version", 0))
+    print("File Versions:")
+    if "package_file_version" in save_file.header:
+        print("  Package:", save_file.header["package_file_version"])
+    print("Engine Version:")
+    ev = save_file.header.get("engine_version", {})
+    print(f"  {ev.get('major', 0)}.{ev.get('minor', 0)}.{ev.get('patch', 0)} "
+          f"(changelist {ev.get('changelist', 0)}, branch '{ev.get('branch', '')}')")
+    print("SaveGame Class Name:",
+          save_file.header.get("save_game_class_name", ""))
 
-    pprint(save_file)
+    def print_prop(prop: Property, indent: int = 0):
+        prefix = ' ' * indent
+        print(f"{prefix}{prop}")
+        if isinstance(prop, StructProperty):
+            for f in prop.fields:
+                print_prop(f, indent + 4)
+        elif isinstance(prop, ArrayProperty):
+            if prop.inner_type == "ByteProperty":
+                print(f"{prefix}    <{len(prop)} bytes>")
+            elif prop.inner_type == "StructProperty":
+                for i in range(0, len(prop)):
+                    print_prop(prop[i], indent + 4)
+            else:
+                raise NotImplementedError(
+                    f"ArrayProperty of type {prop.inner_type} not implemented")
+
+    for prop in save_file.properties:
+        print_prop(prop)
 
 
 if __name__ == '__main__':
