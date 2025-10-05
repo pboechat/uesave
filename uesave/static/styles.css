@@ -1,0 +1,270 @@
+:root {
+    --bg: #0b0b0c;
+    --panel: #111216;
+    --muted: #c0c0c0;
+    --text: #e8e8e8;
+    --accent: #7dd3fc;
+    --hover: #1a1b21;
+    --border: #262730;
+    --shadow: rgba(0, 0, 0, 0.3);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+html, body {
+    height: 100%;
+}
+
+header {
+    position: sticky;
+    top: 0;
+    padding: 24px 16px;
+    display: grid;
+    place-items: center;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(6px);
+}
+
+section-header {
+    top: 0;
+    padding: 24px 16px;
+    display: grid;
+    place-items: center;
+    border-bottom: 1px solid var(--border);
+}
+
+.logo {
+    width: 128px;
+    height: 128px;
+    object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+}
+
+.logo-placeholder {
+    width: 160px;
+    height: 48px;
+    border: 1px dashed #444;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+main {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 16px 48px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+}
+
+@media (min-width: 960px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px var(--shadow);
+    overflow: hidden;
+}
+
+.card header {
+    position: static;
+    background: none;
+    border: 0;
+    padding: 14px 16px;
+    text-align: left;
+}
+
+.card .content {
+    padding: 14px 16px;
+}
+
+/* Smaller upload card visuals */
+.upload-card .content {
+    padding: 10px 12px;
+}
+.upload-card #dropzone {
+    max-width: 360px;
+    padding: 10px 12px;
+}
+.upload-card .btn {
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+.upload-card #status {
+    font-size: 0.9rem;
+}
+
+#dropzone {
+    border: 1px dashed #3a3b42;
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+    color: var(--muted);
+    transition: all .2s ease;
+    background: #0f1014;
+    max-width: 420px;
+    margin: 0 auto;
+}
+
+#dropzone.dragover {
+    border-color: var(--accent);
+    color: var(--text);
+    background: #12141a;
+    box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.15) inset;
+}
+
+#dropzone input {
+    display: none;
+}
+
+#dropzone p {
+    margin: 0 0 10px;
+    font-size: 0.95rem;
+}
+
+.btn {
+    display: inline-block;
+    background: #1b1c22;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background .2s ease, border-color .2s ease;
+}
+
+.btn:hover {
+    background: #20222a;
+    border-color: #3a3b42;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.stat {
+    background: #0f1014;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--muted);
+}
+
+.stat b {
+    color: var(--text);
+}
+
+.tree-item {
+    position: relative;
+    border-radius: 8px;
+    padding: 8px 12px; /* larger click target */
+    margin: 2px 0;
+    transition: background .15s ease, transform .05s ease;
+}
+
+.tree-item:hover {
+    background: var(--hover);
+}
+
+.tree-item .label {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 14px; /* more breathing room */
+    font-size: 1.1rem; /* larger text */
+}
+
+.tree-item .label .icon {
+    width: 40px; /* accommodate larger icon image */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.95;
+}
+
+.tree-item .label .text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-item .label .icon-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25));
+    transition: transform .12s ease;
+    will-change: transform;
+}
+
+/* Subtle icon grow on node hover */
+.tree-item:hover .label .icon-img {
+    transform: scale(1.15);
+}
+
+.children {
+    margin-left: 14px;
+    border-left: 1px dashed #2b2c34;
+    padding-left: 10px;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+footer {
+    margin-top: 28px;
+    color: var(--muted);
+    text-align: center;
+}
+
+/* Full-page drop overlay */
+#page-drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20,22,28,0.6);
+    border: 2px dashed var(--accent);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+}
+#page-drop-overlay.show {
+    display: flex;
+}
+#page-drop-overlay .overlay-inner {
+    color: var(--text);
+    font-size: 18px;
+    background: rgba(17,18,22,0.85);
+    padding: 16px 22px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px var(--shadow);
+}

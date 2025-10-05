@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>uesave</title>
+    <link rel="icon" href="/static/favicon.ico" sizes="any" />
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+
+<body>
+    <header>
+        <img src="/static/logo-small.png" alt="uesave" class="logo" />
+    </header>
+    <main>
+        <div id="page-drop-overlay" aria-hidden="true">
+            <div class="overlay-inner">Drop .sav to upload</div>
+        </div>
+        <section class="card upload-card">
+            <div class="content">
+                <div id="dropzone">
+                    <p class="muted">Drag & drop a .sav file here, or click to select</p>
+                    <input id="fileInput" type="file" accept=".sav" />
+                    <div style="margin-top:10px"><a class="btn" id="browseBtn">Choose File</a></div>
+                </div>
+                <div id="status" class="muted" style="margin-top:10px"></div>
+            </div>
+        </section>
+
+        <div class="grid" style="margin-top:16px">
+            <section class="card stats-card">
+                <section-header>
+                    <h3>Save Stats</h3>
+                </section-header>
+                <div class="content">
+                    <div class="stats" id="stats"></div>
+                </div>
+            </section>
+            <section class="card props-card">
+                <section-header>
+                    <h3>Properties</h3>
+                </section-header>
+                <div class="content">
+                    <ul class="tree" id="tree"></ul>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
