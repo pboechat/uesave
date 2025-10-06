@@ -13,8 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from uesave.uesave import (ArrayProperty, Property, StructProperty,
-                           load_savefile)
+from uesave import ArrayProperty, Property, StructProperty, load_savefile
 
 UPLOAD_ROOT = Path(tempfile.gettempdir()) / "uesave_uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
