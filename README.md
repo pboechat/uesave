@@ -14,9 +14,11 @@ pip install git+https://github.com/pboechat/uesave.git
 ### API
 
 ```
-from uesave import load_savefile
+from uesave import *
 
-load_savefile("/path/to/SaveGame.sav")
+savefile = read_savefile("/path/to/SaveGame.sav")
+
+write_savefile(savefile, "/path/to/SaveGame.sav")
 ```
 
 ### CLI

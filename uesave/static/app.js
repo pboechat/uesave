@@ -5,6 +5,9 @@ const statusEl = document.getElementById('status');
 const statsEl = document.getElementById('stats');
 const treeEl = document.getElementById('tree');
 const pageOverlay = document.getElementById('page-drop-overlay');
+const propSearch = document.getElementById('propSearch');
+let _searchMatches = [];
+let _searchIndex = -1;
 
 function setStatus(msg, isError = false) {
     statusEl.textContent = msg || '';
@@ -15,7 +18,7 @@ function renderStats(header) {
     statsEl.innerHTML = '';
     const pairs = [
         ['Magic', header?.magic ?? ''],
-        ['SaveGame Version', header?.save_game_version ?? header?.version ?? ''],
+        ['SaveGame Version', header?.save_game_version ?? ''],
         ['Package File Version', header?.package_file_version ?? ''],
         ['SaveGame Class', header?.save_game_class_name ?? ''],
     ];
@@ -51,28 +54,34 @@ function iconSrcForType(type) {
 function makeTreeItem(node) {
     const li = document.createElement('li');
     li.className = 'tree-item';
+    li.dataset.name = (node.name || '').toLowerCase();
+    if (node.value !== undefined && node.value !== null) {
+        li.dataset.value = String(node.value).toLowerCase();
+    }
     const label = document.createElement('div');
     label.className = 'label';
-        const icon = document.createElement('span');
-        icon.className = 'icon';
-        const img = document.createElement('img');
-        img.className = 'icon-img';
-        img.src = iconSrcForType(node.type);
-        img.alt = node.type || 'Property';
-        icon.appendChild(img);
-        const text = document.createElement('span');
-        text.className = 'text';
-        const name = node.name || node.type || 'Property';
-        const meta = node.meta || '';
-        text.textContent = name;
-        if (meta) label.title = meta;
-        label.appendChild(icon);
-        label.appendChild(text);
+    const icon = document.createElement('span');
+    icon.className = 'icon';
+    const img = document.createElement('img');
+    img.className = 'icon-img';
+    img.src = iconSrcForType(node.type);
+    img.alt = node.type || 'Property';
+    icon.appendChild(img);
+    const text = document.createElement('span');
+    text.className = 'text';
+    const name = node.name || node.type || 'Property';
+    const meta = node.meta || '';
+    text.textContent = name;
+    if (meta) label.title = meta;
+    label.appendChild(icon);
+    label.appendChild(text);
     li.appendChild(label);
 
     if (node.children && node.children.length) {
         const children = document.createElement('ul');
         children.className = 'children';
+        // mark children container for expansion in search
+        li._childrenEl = children;
         for (const child of node.children) {
             children.appendChild(makeTreeItem(child));
         }
@@ -86,6 +95,7 @@ function makeTreeItem(node) {
         // Leaf with a displayable value: toggle a synthetic single child on click
         const children = document.createElement('ul');
         children.className = 'children';
+        li._childrenEl = children;
         const childLi = document.createElement('li');
         childLi.className = 'tree-item';
         const childLabel = document.createElement('div');
@@ -117,7 +127,91 @@ function makeTreeItem(node) {
 
 function renderTree(nodes) {
     treeEl.innerHTML = '';
-        for (const n of nodes) treeEl.appendChild(makeTreeItem(n));
+    for (const n of nodes) treeEl.appendChild(makeTreeItem(n));
+}
+
+// Expand ancestors of a node to ensure visibility
+function expandAncestors(li) {
+    let cur = li.parentElement;
+    while (cur && cur !== treeEl) {
+        if (cur.classList.contains('children')) {
+            cur.style.display = 'block';
+        }
+        cur = cur.parentElement;
+    }
+}
+
+// Search and highlight
+function runSearch(query) {
+    const q = (query || '').trim().toLowerCase();
+    const items = treeEl.querySelectorAll('.tree-item');
+    let firstMatch = null;
+    // clear previous state
+    items.forEach(li => { li.classList.remove('match'); li.classList.remove('active'); });
+    _searchMatches = [];
+    _searchIndex = -1;
+    if (!q) return;
+    items.forEach(li => {
+        const name = li.dataset.name || '';
+        const val = li.dataset.value || '';
+        if (name.includes(q) || val.includes(q)) {
+            li.classList.add('match');
+            _searchMatches.push(li);
+            if (!firstMatch) firstMatch = li;
+        }
+    });
+    if (firstMatch) {
+        _searchIndex = 0;
+        setActiveMatch(_searchIndex);
+    }
+}
+
+if (propSearch) {
+    let debounce;
+    propSearch.addEventListener('input', (e) => {
+        const v = e.target.value;
+        clearTimeout(debounce);
+        debounce = setTimeout(() => runSearch(v), 120);
+    });
+    // Keyboard navigation: Enter/F3 for next, Shift+Enter/Shift+F3 for previous, Esc to clear
+    propSearch.addEventListener('keydown', (e) => {
+        const key = e.key;
+        if (key === 'Enter' || key === 'F3') {
+            e.preventDefault();
+            if (e.shiftKey) prevMatch(); else nextMatch();
+        } else if (key === 'Escape') {
+            e.preventDefault();
+            propSearch.value = '';
+            runSearch('');
+        }
+    });
+}
+
+function setActiveMatch(index) {
+    if (!_searchMatches.length) return;
+    if (index < 0 || index >= _searchMatches.length) return;
+    // clear existing active
+    treeEl.querySelectorAll('.tree-item.active').forEach(el => el.classList.remove('active'));
+    const li = _searchMatches[index];
+    li.classList.add('active');
+    expandAncestors(li);
+    // If this node has a value child, ensure it is visible
+    if (li._childrenEl) {
+        li._childrenEl.style.display = 'block';
+    }
+    li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function nextMatch() {
+    if (!_searchMatches.length) return;
+    _searchIndex = (_searchIndex + 1) % _searchMatches.length;
+    setActiveMatch(_searchIndex);
+}
+
+function prevMatch() {
+    if (!_searchMatches.length) return;
+    _searchIndex = (_searchIndex - 1 + _searchMatches.length) % _searchMatches.length;
+    setActiveMatch(_searchIndex);
 }
 
 async function upload(file) {
@@ -126,7 +220,16 @@ async function upload(file) {
     fd.append('file', file);
     try {
         const res = await fetch('/api/upload', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('Upload failed');
+        if (!res.ok) {
+            let msg = 'Upload failed';
+            try {
+                const err = await res.json();
+                msg = err?.detail || err?.message || JSON.stringify(err);
+            } catch (e) {
+                try { msg = await res.text(); } catch { }
+            }
+            throw new Error(msg);
+        }
         const data = await res.json();
         renderStats(data.header || {});
         renderTree(data.properties || []);
