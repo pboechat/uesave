@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-uesave = "uesave.uesave:main"
+uesave = "uesave.app:main"
 uesave_webapp = "uesave.webapp:main"
 
 [tool.setuptools]

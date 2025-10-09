@@ -13,8 +13,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from uesave.uesave import (ArrayProperty, Property, StructProperty,
-                           load_savefile)
+from uesave import (ArrayProperty, MapProperty, Property, StructProperty,
+                    TextProperty, read_savefile)
 
 UPLOAD_ROOT = Path(tempfile.gettempdir()) / "uesave_uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -43,7 +43,7 @@ def _clean_loop() -> None:
 
 
 def _ensure_cleaner_started(app: FastAPI) -> None:
-    # Start a background daemon thread once
+    # start a background daemon thread once
     if not getattr(app.state, "_cleaner_started", False):
         t = threading.Thread(target=_clean_loop,
                              name="uesave-cleaner", daemon=True)
@@ -66,21 +66,21 @@ def _sanitize_filename(name: str) -> str:
     return sanitized[-100:]
 
 
-def _format_prop_value(prop: Property) -> Optional[str]:
+def _format_prop_value(obj: Property) -> Optional[str]:
     """Return a concise, human-friendly value preview for leaf properties.
     If the property has children (e.g., Struct or Array of Structs), return None.
     """
-    ptype = prop.__class__.__name__
+    type = obj.__class__.__name__
 
-    # Structs are non-leaf; handled as children elsewhere
-    if isinstance(prop, StructProperty):
+    # structs are non-leaf; handled as children elsewhere
+    if isinstance(obj, StructProperty):
         return None
 
     # Arrays
-    if isinstance(prop, ArrayProperty):
-        if prop.inner_type == "ByteProperty":
-            # Represent as hex preview
-            v = prop.value or {}
+    if isinstance(obj, ArrayProperty):
+        if obj.inner_type == "ByteProperty":
+            # represent as hex preview
+            v = obj.value or {}
             vals = v.get("__values", [])
             try:
                 b = bytes(vals)
@@ -90,28 +90,28 @@ def _format_prop_value(prop: Property) -> Optional[str]:
             preview = b[:32].hex(" ")
             more = f" +{n-32}b" if n > 32 else ""
             return f"{n} bytes: {preview}{more}" if n else "0 bytes"
-        elif prop.inner_type == "StructProperty":
+        elif obj.inner_type == "StructProperty":
             # children will be expanded; no single value
             return None
         else:
             # generic array summary
             try:
-                length = len(prop)
+                length = len(obj)
             except Exception:
                 length = 0
-            return f"Array<{prop.inner_type}> with {length} item(s)"
+            return f"Array<{obj.inner_type}> with {length} item(s)"
 
     # MapProperty and TextProperty use their value payloads for a summary
-    if ptype == "MapProperty":
-        v = getattr(prop, "value", {}) or {}
+    if isinstance(obj, MapProperty):
+        v = getattr(obj, "value", {}) or {}
         k = v.get("__key_type", "?")
         val = v.get("__value_type", "?")
         raw = v.get("__raw", b"")
         size = len(raw) if isinstance(raw, (bytes, bytearray)) else 0
         return f"Map<{k}, {val}> raw {size} byte(s)"
 
-    if ptype == "TextProperty":
-        v = getattr(prop, "value", b"")
+    if isinstance(obj, TextProperty):
+        v = getattr(obj, "value", b"")
         if isinstance(v, (bytes, bytearray)):
             try:
                 s = v.decode("utf-8", errors="ignore").strip()
@@ -124,13 +124,13 @@ def _format_prop_value(prop: Property) -> Optional[str]:
             # fallback to hex/size
             n = len(v)
             preview = bytes(v[:32]).hex(" ")
-            more = f" +{n-32}b" if n > 32 else ""
+            more = f" .. +{n-32}b" if n > 32 else ""
             return f"<Text bytes {n}: {preview}{more}>"
         return str(v)
 
-    # Primitive leaves: bool/int/float/strings
+    # primitive leaves: bool/int/float/strings
     try:
-        val = prop.value
+        val = obj.value
     except Exception:
         return None
 
@@ -148,33 +148,39 @@ def _format_prop_value(prop: Property) -> Optional[str]:
         return None
 
 
-def prop_to_tree_node(prop: Property) -> Dict[str, Any]:
-    ptype = prop.__class__.__name__
-    name = getattr(prop, "name", ptype)
+def create_node(obj: Any) -> Dict[str, Any]:
+    type = obj.__class__.__name__
+    name = getattr(obj, "name", "")
     meta: str = ""
     children: List[Dict[str, Any]] = []
 
-    if isinstance(prop, StructProperty):
-        meta = f"{len(prop.fields)} field(s)"
-        children = [prop_to_tree_node(f) for f in prop.fields]
-    elif isinstance(prop, ArrayProperty):
-        if prop.inner_type == "ByteProperty":
-            meta = f"{len(prop)} bytes"
+    if isinstance(obj, StructProperty):
+        meta = f"{len(obj.fields)} field(s)"
+        children = [create_node(f) for f in obj.fields]
+    elif isinstance(obj, ArrayProperty):
+        if obj.inner_type == "ByteProperty":
+            meta = f"{len(obj)} bytes"
             children = []
-        elif prop.inner_type == "StructProperty":
-            meta = f"{len(prop)} struct(s)"
-            children = [prop_to_tree_node(prop[i]) for i in range(len(prop))]
+        elif obj.inner_type in ["StrProperty", "NameProperty"]:
+            meta = f"Array<{obj.inner_type}> x {len(obj)}"
+            children = [create_node(obj[i]) for i in range(len(obj))]
+        elif obj.inner_type == "IntProperty":
+            meta = f"Array<{obj.inner_type}> x {len(obj)}"
+            children = [create_node(obj[i]) for i in range(len(obj))]
+        elif obj.inner_type == "StructProperty":
+            meta = f"{len(obj)} struct(s)"
+            children = [create_node(obj[i]) for i in range(len(obj))]
         else:
-            meta = f"Array<{prop.inner_type}> x {len(prop)}"
+            meta = f"Array<{obj.inner_type}> x {len(obj)}"
             children = []
 
     value = None
     if not children:
-        value = _format_prop_value(prop)
+        value = _format_prop_value(obj)
 
     return {
         "name": name,
-        "type": ptype,
+        "type": type,
         "meta": meta,
         "children": children if children else None,
         "value": value,
@@ -212,17 +218,19 @@ async def api_upload(file: UploadFile = File(...)) -> JSONResponse:
         await file.close()
 
     try:
-        save = load_savefile(dest)
-        nodes = [prop_to_tree_node(p) for p in save.properties]
+        save = read_savefile(dest)
+        nodes = [create_node(p) for p in save.properties]
         return JSONResponse({
             "header": save.header,
-            "version": save.version,
             "properties": nodes,
             "uploaded_path": str(dest),
         })
     except Exception as e:
-        # On failure, include a short error and leave the file for debugging; cleaner will purge later.
-        raise HTTPException(status_code=400, detail=f"Parse error: {e}")
+        # On failure, include the exception type and message; cleaner will purge file later.
+        err_type = e.__class__.__name__
+        err_msg = str(e) or repr(e)
+        raise HTTPException(
+            status_code=400, detail=f"Parse error ({err_type}): {err_msg}")
 
 
 def main() -> None:
@@ -240,4 +248,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    main()
     main()

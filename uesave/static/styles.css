@@ -20,7 +20,8 @@ body {
     font: 14px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
-html, body {
+html,
+body {
     height: 100%;
 }
 
@@ -47,7 +48,7 @@ section-header {
     height: 128px;
     object-fit: contain;
     image-rendering: -webkit-optimize-contrast;
-    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
 }
 
 .logo-placeholder {
@@ -100,18 +101,51 @@ main {
     padding: 14px 16px;
 }
 
+/* Search box in properties card */
+.props-card .search {
+    margin-bottom: 10px;
+}
+
+.props-card .search input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #0f1014;
+    border: 1px solid var(--border);
+    color: var(--text);
+    outline: none;
+}
+
+.props-card .search input[type="text"]:focus {
+    border-color: #3a3b42;
+}
+
+/* Highlight matched tree items */
+.tree-item.match {
+    background: rgba(125, 211, 252, 0.12);
+    box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.18) inset;
+}
+
+.tree-item.active {
+    background: rgba(125, 211, 252, 0.18);
+    box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.36) inset;
+}
+
 /* Smaller upload card visuals */
 .upload-card .content {
     padding: 10px 12px;
 }
+
 .upload-card #dropzone {
     max-width: 360px;
     padding: 10px 12px;
 }
+
 .upload-card .btn {
     padding: 8px 12px;
     border-radius: 8px;
 }
+
 .upload-card #status {
     font-size: 0.9rem;
 }
@@ -182,7 +216,8 @@ main {
 .tree-item {
     position: relative;
     border-radius: 8px;
-    padding: 8px 12px; /* larger click target */
+    padding: 8px 12px;
+    /* larger click target */
     margin: 2px 0;
     transition: background .15s ease, transform .05s ease;
 }
@@ -196,12 +231,15 @@ main {
     user-select: none;
     display: flex;
     align-items: center;
-    gap: 14px; /* more breathing room */
-    font-size: 1.1rem; /* larger text */
+    gap: 14px;
+    /* more breathing room */
+    font-size: 1.1rem;
+    /* larger text */
 }
 
 .tree-item .label .icon {
-    width: 40px; /* accommodate larger icon image */
+    width: 40px;
+    /* accommodate larger icon image */
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -219,7 +257,7 @@ main {
     height: 32px;
     object-fit: contain;
     image-rendering: -webkit-optimize-contrast;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25));
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
     transition: transform .12s ease;
     will-change: transform;
 }
@@ -233,6 +271,20 @@ main {
     margin-left: 14px;
     border-left: 1px dashed #2b2c34;
     padding-left: 10px;
+}
+
+/* Fixed-height, scrollable properties pane with horizontal scroll when needed */
+.props-card .tree {
+    height: 520px;
+    /* fixed pane height */
+    overflow: auto;
+    /* both axes */
+}
+
+.props-card .tree .label .text {
+    /* allow long names to exceed width so horizontal scrollbar can appear */
+    overflow: visible;
+    text-overflow: clip;
 }
 
 .muted {
@@ -249,7 +301,7 @@ footer {
 #page-drop-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(20,22,28,0.6);
+    background: rgba(20, 22, 28, 0.6);
     border: 2px dashed var(--accent);
     display: none;
     align-items: center;
@@ -257,13 +309,15 @@ footer {
     z-index: 1000;
     backdrop-filter: blur(2px);
 }
+
 #page-drop-overlay.show {
     display: flex;
 }
+
 #page-drop-overlay .overlay-inner {
     color: var(--text);
     font-size: 18px;
-    background: rgba(17,18,22,0.85);
+    background: rgba(17, 18, 22, 0.85);
     padding: 16px 22px;
     border-radius: 12px;
     box-shadow: 0 10px 30px var(--shadow);
